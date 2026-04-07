@@ -1,0 +1,61 @@
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ApplicationStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  RECEIVED_RESPONSE
+  INTERVIEW_REQUESTED
+  ONSITE_REQUESTED
+  REJECTED
+  OFFER
+}
+
+model User {
+  id            String        @id @default(cuid())
+  username      String?       @unique
+  passwordHash  String?
+  name          String
+  email         String        @unique
+  workHistory   Json
+  skills        Json
+  createdAt     DateTime      @default(now())
+  applications  Application[]
+  feedback      Feedback[]
+}
+
+model Application {
+  id             String            @id @default(cuid())
+  userId         String
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobTitle       String
+  company        String
+  jobDescription String            @db.Text
+  status         ApplicationStatus
+  appliedAt      DateTime
+  feedback       Feedback[]
+
+  @@index([userId])
+}
+
+model Feedback {
+  id            String       @id @default(cuid())
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  featureUsed   String
+  rating        Int
+  comment       String?
+
+  @@index([applicationId])
+  @@index([userId])
+}
