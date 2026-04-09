@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { verifyPassword } from "@/lib/auth-password";
 import {
   SESSION_COOKIE_NAME,
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await prisma.user.findFirst({
       where: { username },
-      select: { ...userPublicSelect, passwordHash: true },
+      select: { ...userPublicSelect, passwordHash: true, resumePdf: true },
     });
 
     if (!user?.passwordHash) {
@@ -49,14 +50,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
     }
 
+    const { passwordHash: _ph, resumePdf, ...rest } = user;
+    void _ph;
     const publicUser = {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      email: user.email,
-      workHistory: user.workHistory,
-      skills: user.skills,
-      createdAt: user.createdAt,
+      ...rest,
+      hasResumePdf: !!resumePdf && resumePdf.length > 0,
     };
     let token: string;
     try {
@@ -72,6 +70,16 @@ export async function POST(request: NextRequest) {
     });
     return res;
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientInitializationError) {
+      logError("api.auth.login db unavailable", e);
+      return NextResponse.json(
+        {
+          error:
+            "Database is not reachable. Start PostgreSQL and verify DATABASE_URL in .env.",
+        },
+        { status: 503 }
+      );
+    }
     logError("api.auth.login", e);
     return NextResponse.json({ error: "Could not sign in." }, { status: 500 });
   }

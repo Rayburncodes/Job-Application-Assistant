@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { logApiRequest, logError } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { userPublicSelect } from "@/lib/user-public";
+import {
+  userPublicForClient,
+  userPublicWithResumePdfSelect,
+} from "@/lib/user-public";
 
 function toJsonValue(value: unknown, defaultValue: Prisma.InputJsonValue): Prisma.InputJsonValue {
   if (value === undefined || value === null) return defaultValue;
@@ -52,9 +55,9 @@ export async function POST(request: NextRequest) {
         workHistory: toJsonValue(workHistory, {}),
         skills: toJsonValue(skills, {}),
       },
-      select: userPublicSelect,
+      select: userPublicWithResumePdfSelect,
     });
-    return NextResponse.json(user, { status: 201 });
+    return NextResponse.json(userPublicForClient(user), { status: 201 });
   } catch (e: unknown) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       return NextResponse.json({ error: "A user with this email already exists" }, { status: 409 });
@@ -76,14 +79,14 @@ export async function GET(request: NextRequest) {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId.trim() },
-      select: userPublicSelect,
+      select: userPublicWithResumePdfSelect,
     });
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    return NextResponse.json(user);
+    return NextResponse.json(userPublicForClient(user));
   } catch (e) {
     logError("api.users.GET prisma", e);
     return NextResponse.json({ error: "Failed to load user" }, { status: 500 });

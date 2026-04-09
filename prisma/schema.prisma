@@ -25,6 +25,10 @@ model User {
   passwordHash  String?
   name          String
   email         String        @unique
+  linkedinUrl   String?
+  githubUrl     String?
+  resumeText    String?
+  resumePdf     Bytes?
   workHistory   Json
   skills        Json
   createdAt     DateTime      @default(now())

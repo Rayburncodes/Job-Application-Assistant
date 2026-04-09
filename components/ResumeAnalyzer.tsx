@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useUserProfile } from "@/contexts/user-profile-context";
+import { TextFileImportButton } from "@/components/TextFileImportButton";
 
 type AnalysisResult = {
   matchScore: number;
@@ -122,15 +123,47 @@ export function ResumeAnalyzer({ userId: userIdProp }: ResumeAnalyzerProps) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="space-y-2">
-        <label htmlFor="resume-text" className="block text-sm font-semibold text-slate-800">
-          Resume
-        </label>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="resume-text" className="text-sm font-semibold text-slate-800">
+            Resume
+          </label>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {profile?.resumeText?.trim() || profile?.hasResumePdf ? (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  const t = (profile.resumeText ?? "").trim();
+                  if (!t) {
+                    setError(
+                      "Your saved PDF has no extractable text. Paste your resume above or try a different PDF."
+                    );
+                    return;
+                  }
+                  setResumeText(profile.resumeText ?? "");
+                  setError(null);
+                }}
+                className="btn-secondary py-1.5 text-xs font-semibold"
+              >
+                Load saved resume
+              </button>
+            ) : null}
+            <TextFileImportButton
+              id="resume-file-import"
+              onImported={(text) => {
+                setResumeText(text);
+                setError(null);
+              }}
+              disabled={loading}
+            />
+          </div>
+        </div>
         <textarea
           id="resume-text"
           value={resumeText}
           onChange={(e) => setResumeText(e.target.value)}
           rows={10}
-          placeholder="Paste your resume text…"
+          placeholder="Paste your resume or import a PDF / .txt / .md file…"
           className="input-simplify min-h-[200px] resize-y"
         />
       </div>
@@ -227,29 +260,25 @@ export function ResumeAnalyzer({ userId: userIdProp }: ResumeAnalyzerProps) {
                         type="button"
                         disabled={busy}
                         onClick={() => sendSuggestionFeedback(suggestion, index, true)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg border text-lg transition-colors ${
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                           vote === "up"
                             ? "border-teal-500 bg-teal-50 text-teal-800"
-                            : "border-slate-200 bg-white hover:border-teal-200"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-teal-200"
                         } disabled:opacity-50`}
-                        aria-label="Helpful"
-                        title="Helpful"
                       >
-                        👍
+                        Helpful
                       </button>
                       <button
                         type="button"
                         disabled={busy}
                         onClick={() => sendSuggestionFeedback(suggestion, index, false)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-lg border text-lg transition-colors ${
+                        className={`rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
                           vote === "down"
                             ? "border-red-300 bg-red-50 text-red-800"
-                            : "border-slate-200 bg-white hover:border-slate-300"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
                         } disabled:opacity-50`}
-                        aria-label="Not helpful"
-                        title="Not helpful"
                       >
-                        👎
+                        Not helpful
                       </button>
                     </div>
                   </li>

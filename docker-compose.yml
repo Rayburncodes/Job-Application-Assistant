@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: jobassistant
+      POSTGRES_PASSWORD: jobassistant
+      POSTGRES_DB: jobassistant
+    volumes:
+      - job_assistant_pg:/var/lib/postgresql/data
+
+volumes:
+  job_assistant_pg:

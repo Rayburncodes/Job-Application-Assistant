@@ -6,7 +6,10 @@ import {
 } from "@/lib/auth-session";
 import { logApiRequest, logError } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { userPublicSelect } from "@/lib/user-public";
+import {
+  userPublicForClient,
+  userPublicWithResumePdfSelect,
+} from "@/lib/user-public";
 
 export async function GET(request: NextRequest) {
   logApiRequest(request);
@@ -26,14 +29,14 @@ export async function GET(request: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: userPublicSelect,
+      select: userPublicWithResumePdfSelect,
     });
 
     if (!user) {
       return NextResponse.json({ user: null });
     }
 
-    return NextResponse.json({ user });
+    return NextResponse.json({ user: userPublicForClient(user) });
   } catch (e) {
     logError("api.auth.me", e);
     return NextResponse.json({ error: "Could not load session." }, { status: 500 });

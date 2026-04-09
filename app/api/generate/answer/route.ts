@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getSessionUserId } from "@/lib/auth-session";
 import { logApiRequest, logError } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
@@ -40,6 +40,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "question is required" }, { status: 400 });
   }
 
+  const sessionUserId = await getSessionUserId(request);
+  if (!sessionUserId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (sessionUserId !== userIdStr) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   let user;
   try {
     user = await prisma.user.findUnique({ where: { id: userIdStr } });
@@ -52,20 +60,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OpenAI is not configured" }, { status: 500 });
+  const accountId = process.env.CF_ACCOUNT_ID;
+  const token = process.env.CF_AI_TOKEN;
+  const model = process.env.CF_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+  if (!accountId || !token) {
+    return NextResponse.json({ error: "Cloudflare AI is not configured" }, { status: 500 });
   }
 
   try {
-    const openai = new OpenAI({ apiKey });
     const profile = [
       `Candidate name: ${user.name}`,
+      user.linkedinUrl ? `LinkedIn: ${user.linkedinUrl}` : null,
+      user.githubUrl ? `GitHub: ${user.githubUrl}` : null,
       `Profile workHistory (JSON): ${JSON.stringify(user.workHistory)}`,
       `Profile skills (JSON): ${JSON.stringify(user.skills)}`,
-    ].join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     const userMessage = [
+      SYSTEM_PROMPT,
+      "",
       profile,
       "",
       "--- Job description ---",
@@ -75,23 +90,41 @@ export async function POST(request: NextRequest) {
       questionStr,
     ].join("\n");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.5,
-    });
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userMessage },
+          ],
+          temperature: 0.5,
+        }),
+      }
+    );
 
-    const answer = completion.choices[0]?.message?.content?.trim();
+    const data: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      logError("api.generate.answer.POST cloudflare", data);
+      return NextResponse.json({ error: "Answer generation failed" }, { status: 500 });
+    }
+
+    const record = data as Record<string, unknown> | null;
+    const result = record?.result as Record<string, unknown> | undefined;
+    const answer =
+      (typeof result?.response === "string" ? result.response : "").trim();
     if (!answer) {
       return NextResponse.json({ error: "Empty response from model" }, { status: 500 });
     }
 
     return NextResponse.json({ answer });
   } catch (e) {
-    logError("api.generate.answer.POST openai or pipeline", e);
+    logError("api.generate.answer.POST cloudflare or pipeline", e);
     return NextResponse.json({ error: "Answer generation failed" }, { status: 500 });
   }
 }

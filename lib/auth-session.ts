@@ -1,3 +1,4 @@
+import type { NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE_NAME = "job-assistant-token";
@@ -43,4 +44,11 @@ export async function verifySessionToken(token: string): Promise<string | null> 
   } catch {
     return null;
   }
+}
+
+/** User id from the signed session cookie, or null if missing/invalid. */
+export async function getSessionUserId(request: NextRequest): Promise<string | null> {
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (!token) return null;
+  return verifySessionToken(token);
 }

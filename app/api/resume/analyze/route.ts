@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { getSessionUserId } from "@/lib/auth-session";
 import { logApiRequest, logError } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 
@@ -11,7 +11,7 @@ The JSON object MUST use exactly these keys with these types:
 - "gaps": an array of strings (gaps or weaknesses vs the job)
 - "suggestions": an array of strings (concrete improvements to the resume or positioning)
 
-Do not include any other keys.`;
+Do not use emoji in any string values. Do not include any other keys.`;
 
 type AnalysisResult = {
   matchScore: number;
@@ -78,6 +78,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "jobDescription is required" }, { status: 400 });
   }
 
+  const sessionUserId = await getSessionUserId(request);
+  if (!sessionUserId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (sessionUserId !== userIdStr) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   let user;
   try {
     user = await prisma.user.findUnique({ where: { id: userIdStr } });
@@ -90,21 +98,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "User not found" }, { status: 404 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OpenAI is not configured" }, { status: 500 });
+  const accountId = process.env.CF_ACCOUNT_ID;
+  const token = process.env.CF_AI_TOKEN;
+  const model = process.env.CF_AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
+  if (!accountId || !token) {
+    return NextResponse.json({ error: "Cloudflare AI is not configured" }, { status: 500 });
   }
 
   try {
-    const openai = new OpenAI({ apiKey });
     const userContext = [
       `Candidate name: ${user.name}`,
       `Email: ${user.email}`,
+      user.linkedinUrl ? `LinkedIn: ${user.linkedinUrl}` : null,
+      user.githubUrl ? `GitHub: ${user.githubUrl}` : null,
       `Profile workHistory (JSON): ${JSON.stringify(user.workHistory)}`,
       `Profile skills (JSON): ${JSON.stringify(user.skills)}`,
-    ].join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     const userMessage = [
+      SYSTEM_PROMPT,
+      "",
       userContext,
       "",
       "--- Resume text ---",
@@ -114,16 +129,33 @@ export async function POST(request: NextRequest) {
       jobStr,
     ].join("\n");
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage },
-      ],
-      temperature: 0.3,
-    });
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userMessage },
+          ],
+          temperature: 0.3,
+        }),
+      }
+    );
 
-    const content = completion.choices[0]?.message?.content;
+    const data: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      logError("api.resume.analyze.POST cloudflare", data);
+      return NextResponse.json({ error: "Resume analysis failed" }, { status: 500 });
+    }
+
+    const record = data as Record<string, unknown> | null;
+    const result = record?.result as Record<string, unknown> | undefined;
+    const content = typeof result?.response === "string" ? result.response : "";
     if (!content) {
       return NextResponse.json({ error: "Empty response from model" }, { status: 500 });
     }
@@ -141,7 +173,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(parsed);
   } catch (e) {
-    logError("api.resume.analyze.POST openai or pipeline", e);
+    logError("api.resume.analyze.POST cloudflare or pipeline", e);
     return NextResponse.json({ error: "Resume analysis failed" }, { status: 500 });
   }
 }

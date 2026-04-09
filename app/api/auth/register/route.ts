@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth-session";
 import { logApiRequest, logError } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { userPublicSelect } from "@/lib/user-public";
+import { userPublicForClient, userPublicWithResumePdfSelect } from "@/lib/user-public";
 
 const USERNAME_RE = /^[a-z0-9_]{3,32}$/i;
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Username must be 3–32 characters and use only letters, numbers, or underscores.",
+          "Username must be 3-32 characters and use only letters, numbers, or underscores.",
       },
       { status: 400 }
     );
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
         workHistory: {},
         skills: {},
       },
-      select: userPublicSelect,
+      select: userPublicWithResumePdfSelect,
     });
 
     let token: string;
@@ -78,13 +78,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Server configuration error." }, { status: 500 });
     }
 
-    const res = NextResponse.json({ user }, { status: 201 });
+    const res = NextResponse.json({ user: userPublicForClient(user) }, { status: 201 });
     res.cookies.set(SESSION_COOKIE_NAME, token, {
       ...sessionCookieBase(),
       maxAge: SESSION_MAX_AGE_SEC,
     });
     return res;
   } catch (e) {
+    if (e instanceof Prisma.PrismaClientInitializationError) {
+      logError("api.auth.register db unavailable", e);
+      return NextResponse.json(
+        {
+          error:
+            "Database is not reachable. Start PostgreSQL (e.g. run `docker compose up -d` in the job-assistant folder) and check DATABASE_URL in .env.",
+        },
+        { status: 503 }
+      );
+    }
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       const fields = e.meta?.target as string[] | undefined;
       const field = fields?.[0] ?? "field";

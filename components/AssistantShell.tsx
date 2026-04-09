@@ -1,14 +1,17 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useUserProfile } from "@/contexts/user-profile-context";
 import { OnboardingFlow } from "@/components/OnboardingFlow";
+import { ProfileEditor } from "@/components/ProfileEditor";
 import { ResumeAnalyzer } from "@/components/ResumeAnalyzer";
 import { TailoredAnswer } from "@/components/TailoredAnswer";
 
 type Section = "dashboard" | "onboarding" | "resume" | "answer";
 
 type AuthMode = "login" | "register";
+
+const SECTIONS_REQUIRING_AUTH: Section[] = ["onboarding", "resume", "answer"];
 
 const NAV: { id: Section; label: string; hint: string }[] = [
   { id: "dashboard", label: "Dashboard", hint: "Profile & overview" },
@@ -83,7 +86,15 @@ function DashboardPanel() {
         setFormError(typeof data.error === "string" ? data.error : "Could not sign in.");
         return;
       }
-      await refreshProfile();
+      const sessionUser =
+        data &&
+        typeof data === "object" &&
+        "user" in data &&
+        data.user &&
+        typeof data.user === "object"
+          ? (data.user as Record<string, unknown>)
+          : null;
+      await refreshProfile(sessionUser);
       setPassword("");
     } finally {
       setBusy(false);
@@ -111,7 +122,15 @@ function DashboardPanel() {
         setFormError(typeof data.error === "string" ? data.error : "Could not create account.");
         return;
       }
-      await refreshProfile();
+      const sessionUser =
+        data &&
+        typeof data === "object" &&
+        "user" in data &&
+        data.user &&
+        typeof data.user === "object"
+          ? (data.user as Record<string, unknown>)
+          : null;
+      await refreshProfile(sessionUser);
       setPassword("");
     } finally {
       setBusy(false);
@@ -119,7 +138,7 @@ function DashboardPanel() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-8">
+    <div className="mx-auto max-w-3xl space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
         <p className="mt-2 text-base text-slate-600">
@@ -139,22 +158,33 @@ function DashboardPanel() {
                 <p className="text-sm font-medium text-slate-700">@{profile.username}</p>
               )}
               <p className="text-sm text-slate-600">{profile.email}</p>
+              {(profile.linkedinUrl || profile.githubUrl) && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {profile.linkedinUrl && (
+                    <a
+                      href={profile.linkedinUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+                    >
+                      LinkedIn
+                    </a>
+                  )}
+                  {profile.githubUrl && (
+                    <a
+                      href={profile.githubUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+                    >
+                      GitHub
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-          <div className="grid gap-4 border-t border-slate-100 pt-5 text-sm sm:grid-cols-2">
-            <div>
-              <p className="font-semibold text-slate-800">Skills</p>
-              <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-xs text-slate-700">
-                {JSON.stringify(profile.skills, null, 2)}
-              </pre>
-            </div>
-            <div>
-              <p className="font-semibold text-slate-800">Work history</p>
-              <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 p-3 text-xs text-slate-700">
-                {JSON.stringify(profile.workHistory, null, 2)}
-              </pre>
-            </div>
-          </div>
+          <ProfileEditor />
         </div>
       ) : (
         <div className="card-simplify shadow-card">
@@ -242,7 +272,7 @@ function DashboardPanel() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="input-simplify"
-                  placeholder="letters, numbers, underscore (3–32)"
+                  placeholder="letters, numbers, underscore (3-32)"
                   required
                 />
               </div>
@@ -313,65 +343,118 @@ function DashboardPanel() {
 }
 
 export function AssistantShell() {
+  const { profile, status } = useUserProfile();
   const [section, setSection] = useState<Section>("dashboard");
   const [jobDescription, setJobDescription] = useState("");
+  const [navMinimized, setNavMinimized] = useState(false);
+
+  const navItems = useMemo(
+    () => (profile ? NAV : NAV.filter((item) => item.id === "dashboard")),
+    [profile]
+  );
+
+  useEffect(() => {
+    if (status === "loading") return;
+    if (profile) return;
+    if (SECTIONS_REQUIRING_AUTH.includes(section)) {
+      setSection("dashboard");
+    }
+  }, [profile, status, section]);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f4f6f8] text-slate-900">
       <AppHeader />
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white md:flex lg:w-72">
-          <div className="p-4">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
-              Navigate
-            </p>
-          </div>
-          <nav className="flex flex-col gap-1 px-3 pb-6" aria-label="Main">
-            {NAV.map((item) => (
+      <div className="flex min-h-0 flex-1 items-start">
+        <aside
+          className={[
+            "sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white md:flex",
+            navMinimized ? "w-16" : "w-64 lg:w-72",
+          ].join(" ")}
+        >
+          <div className={navMinimized ? "p-3" : "p-4"}>
+            <div className="flex items-center justify-between gap-2">
+              {!navMinimized && (
+                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  Navigate
+                </p>
+              )}
               <button
-                key={item.id}
                 type="button"
-                onClick={() => setSection(item.id)}
+                onClick={() => setNavMinimized((v) => !v)}
                 className={[
-                  "group flex flex-col rounded-xl px-3 py-3 text-left transition-all",
-                  section === item.id
-                    ? "bg-teal-600 text-white shadow-md shadow-teal-600/20"
-                    : "text-slate-700 hover:bg-slate-50",
+                  "rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50",
+                  navMinimized ? "w-full" : "",
                 ].join(" ")}
+                aria-label={navMinimized ? "Expand navigation" : "Minimize navigation"}
+                title={navMinimized ? "Expand" : "Minimize"}
               >
-                <span className="text-sm font-semibold">{item.label}</span>
-                <span
-                  className={[
-                    "mt-0.5 text-xs",
-                    section === item.id ? "text-teal-100" : "text-slate-400 group-hover:text-slate-500",
-                  ].join(" ")}
-                >
-                  {item.hint}
-                </span>
+                {navMinimized ? "›" : "‹"}
               </button>
-            ))}
+            </div>
+            {!navMinimized && !profile && status !== "loading" && (
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                Sign in on the dashboard to unlock onboarding, resume analysis, and answer drafts.
+              </p>
+            )}
+          </div>
+          <nav
+            className={navMinimized ? "flex flex-col gap-1 px-2 pb-6" : "flex flex-col gap-1 px-3 pb-6"}
+            aria-label="Main"
+          >
+            {navMinimized
+              ? null
+              : navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSection(item.id)}
+                    className={[
+                      "group flex flex-col rounded-xl px-3 py-3 text-left transition-all",
+                      section === item.id
+                        ? "bg-teal-600 text-white shadow-md shadow-teal-600/20"
+                        : "text-slate-700 hover:bg-slate-50",
+                    ].join(" ")}
+                  >
+                    <span className="text-sm font-semibold">{item.label}</span>
+                    <span
+                      className={[
+                        "mt-0.5 text-xs",
+                        section === item.id
+                          ? "text-teal-100"
+                          : "text-slate-400 group-hover:text-slate-500",
+                      ].join(" ")}
+                    >
+                      {item.hint}
+                    </span>
+                  </button>
+                ))}
           </nav>
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col md:border-l md:border-transparent">
-          <div className="border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-            <label htmlFor="section-mobile" className="sr-only">
-              Section
-            </label>
-            <select
-              id="section-mobile"
-              value={section}
-              onChange={(e) => setSection(e.target.value as Section)}
-              className="input-simplify py-2.5 text-sm font-medium"
-            >
-              {NAV.map((item) => (
-                <option key={item.id} value={item.id}>
+          <nav
+            className="border-b border-slate-200 bg-white px-3 py-2.5 md:hidden"
+            aria-label="Main sections"
+          >
+            <div className="-mx-0.5 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setSection(item.id)}
+                  className={[
+                    "shrink-0 rounded-full px-3.5 py-2 text-sm font-semibold transition-colors",
+                    section === item.id
+                      ? "bg-teal-600 text-white shadow-sm shadow-teal-600/20"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  ].join(" ")}
+                >
                   {item.label}
-                </option>
+                </button>
               ))}
-            </select>
-          </div>
+            </div>
+          </nav>
 
           <main className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:max-w-4xl lg:px-8 lg:py-10">
@@ -384,8 +467,9 @@ export function AssistantShell() {
                       Resume Analyzer
                     </h1>
                     <p className="mt-2 max-w-2xl text-base text-slate-600">
-                      Paste a job description and your resume to get a match-style score, strengths,
-                      gaps, and fixes. Similar energy to ATS checks and keyword tools.
+                      Paste a job description and import or paste your resume (PDF or text) to get a
+                      match-style score, strengths, gaps, and fixes. Similar energy to ATS checks and
+                      keyword tools.
                     </p>
                   </div>
                   <ResumeAnalyzer />
