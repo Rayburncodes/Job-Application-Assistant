@@ -91,6 +91,7 @@ export function OnboardingFlow() {
   const [level, setLevel] = useState<string | null>(null);
   const [salary, setSalary] = useState<number | null>(null);
   const [roleSearch, setRoleSearch] = useState("");
+  const [customLocationInput, setCustomLocationInput] = useState("");
   const [finished, setFinished] = useState(false);
 
   const progressPercent = Math.round(((step + 1) / 5) * 100);
@@ -136,6 +137,16 @@ export function OnboardingFlow() {
     setLocations((prev) =>
       prev.includes(loc) ? prev.filter((x) => x !== loc) : [...prev, loc]
     );
+  }
+
+  function addCustomLocation() {
+    const trimmed = customLocationInput.trim();
+    if (!trimmed) return;
+    setLocations((prev) => {
+      if (prev.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return prev;
+      return [...prev, trimmed];
+    });
+    setCustomLocationInput("");
   }
 
   function handleContinue() {
@@ -283,6 +294,24 @@ export function OnboardingFlow() {
               <p className="mt-2 text-sm text-slate-600">
                 Select all locations you&apos;d consider.
               </p>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <input
+                  type="text"
+                  value={customLocationInput}
+                  onChange={(e) => setCustomLocationInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addCustomLocation();
+                    }
+                  }}
+                  placeholder="Add your own location"
+                  className="input-simplify"
+                />
+                <button type="button" onClick={addCustomLocation} className="btn-secondary sm:whitespace-nowrap">
+                  Add location
+                </button>
+              </div>
               <ul className="mt-6 grid gap-2 sm:grid-cols-2">
                 {LOCATIONS.map((loc) => {
                   const checked = locations.includes(loc);
@@ -311,6 +340,28 @@ export function OnboardingFlow() {
                   );
                 })}
               </ul>
+              {locations.some((loc) => !LOCATIONS.includes(loc)) && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Custom locations
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {locations
+                      .filter((loc) => !LOCATIONS.includes(loc))
+                      .map((loc) => (
+                        <button
+                          key={loc}
+                          type="button"
+                          onClick={() => toggleLocation(loc)}
+                          className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-900 hover:border-teal-300"
+                          title="Remove location"
+                        >
+                          {loc} ×
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
 

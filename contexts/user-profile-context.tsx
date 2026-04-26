@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -58,8 +59,9 @@ type UserProfileContextValue = {
   /**
    * Reload session from /api/auth/me. After login/register, pass the `user` object from that
    * response so we still hydrate if /me fails temporarily.
+   * @returns true if a user profile is available after the call
    */
-  refreshProfile: (sessionUserFallback?: Record<string, unknown> | null) => Promise<void>;
+  refreshProfile: (sessionUserFallback?: Record<string, unknown> | null) => Promise<boolean>;
   clearProfile: () => Promise<void>;
 };
 
@@ -68,11 +70,26 @@ const UserProfileContext = createContext<UserProfileContextValue | null>(null);
 export function UserProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [status, setStatus] = useState<UserProfileContextValue["status"]>("idle");
+  const profileRef = useRef<UserProfile | null>(null);
+  const refreshGenerationRef = useRef(0);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   const refreshProfile = useCallback(
-    async (sessionUserFallback?: Record<string, unknown> | null) => {
+    async (sessionUserFallback?: Record<string, unknown> | null): Promise<boolean> => {
+      const generation = ++refreshGenerationRef.current;
+      const stale = () => generation !== refreshGenerationRef.current;
+      /** If this fetch was superseded, do not touch React state (avoids e.g. mount /me clearing a fresh login). */
+      const returnIfStale = (): boolean => {
+        if (!stale()) return false;
+        return profileRef.current != null;
+      };
+
       setStatus("loading");
-      const applyFallback = () => {
+      const applyFallback = (): boolean => {
+        if (stale()) return false;
         if (
           sessionUserFallback &&
           typeof sessionUserFallback === "object" &&
@@ -87,30 +104,41 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
       try {
         const res = await fetch("/api/auth/me", { credentials: "include" });
+        if (stale()) return returnIfStale();
         const data: unknown = await res.json().catch(() => null);
+        if (stale()) return returnIfStale();
         const record = data as Record<string, unknown> | null;
         if (!res.ok || !record) {
-          if (applyFallback()) return;
+          if (applyFallback()) return true;
+          if (stale()) return returnIfStale();
           setProfile(null);
           setStatus("error");
-          return;
+          return false;
         }
         if (record.user === null || record.user === undefined) {
+          if (applyFallback()) return true;
+          if (stale()) return returnIfStale();
           setProfile(null);
           setStatus("idle");
-          return;
+          return false;
         }
         if (typeof record.user !== "object" || record.user === null) {
+          if (applyFallback()) return true;
+          if (stale()) return returnIfStale();
           setProfile(null);
           setStatus("idle");
-          return;
+          return false;
         }
+        if (stale()) return returnIfStale();
         setProfile(normalizeUser(record.user as Record<string, unknown>));
         setStatus("ready");
+        return true;
       } catch {
-        if (applyFallback()) return;
+        if (applyFallback()) return true;
+        if (stale()) return returnIfStale();
         setProfile(null);
         setStatus("error");
+        return false;
       }
     },
     []

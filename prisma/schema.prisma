@@ -43,6 +43,8 @@ model Application {
   jobTitle       String
   company        String
   jobDescription String            @db.Text
+  /// Direct link to apply on the employer site (optional).
+  applyUrl       String?
   status         ApplicationStatus
   appliedAt      DateTime
   feedback       Feedback[]

@@ -6,16 +6,20 @@ import { OnboardingFlow } from "@/components/OnboardingFlow";
 import { ProfileEditor } from "@/components/ProfileEditor";
 import { ResumeAnalyzer } from "@/components/ResumeAnalyzer";
 import { TailoredAnswer } from "@/components/TailoredAnswer";
+import { JobApplicationsPanel } from "@/components/JobApplicationsPanel";
 
-type Section = "dashboard" | "onboarding" | "resume" | "answer";
+type Section = "dashboard" | "onboarding" | "jobListing" | "resume" | "answer";
+
+type DashboardTab = "profile" | "applied";
 
 type AuthMode = "login" | "register";
 
-const SECTIONS_REQUIRING_AUTH: Section[] = ["onboarding", "resume", "answer"];
+const SECTIONS_REQUIRING_AUTH: Section[] = ["onboarding", "jobListing", "resume", "answer"];
 
 const NAV: { id: Section; label: string; hint: string }[] = [
   { id: "dashboard", label: "Dashboard", hint: "Profile & overview" },
   { id: "onboarding", label: "Onboarding", hint: "Preferences" },
+  { id: "jobListing", label: "Open jobs", hint: "Not applied yet" },
   { id: "resume", label: "Resume Analyzer", hint: "ATS-style match" },
   { id: "answer", label: "Answer Generator", hint: "Application Q&A" },
 ];
@@ -62,6 +66,7 @@ function AppHeader() {
 
 function DashboardPanel() {
   const { profile, status, refreshProfile } = useUserProfile();
+  const [dashTab, setDashTab] = useState<DashboardTab>("profile");
   const [mode, setMode] = useState<AuthMode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -94,8 +99,13 @@ function DashboardPanel() {
         typeof data.user === "object"
           ? (data.user as Record<string, unknown>)
           : null;
-      await refreshProfile(sessionUser);
+      const hydrated = await refreshProfile(sessionUser);
       setPassword("");
+      if (!hydrated) {
+        setFormError(
+          "Signed in, but your profile could not be loaded. Refresh the page, or start Postgres (from repo root: npm run docker:up) and check DATABASE_URL in job-assistant/.env."
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -130,8 +140,13 @@ function DashboardPanel() {
         typeof data.user === "object"
           ? (data.user as Record<string, unknown>)
           : null;
-      await refreshProfile(sessionUser);
+      const hydrated = await refreshProfile(sessionUser);
       setPassword("");
+      if (!hydrated) {
+        setFormError(
+          "Account created, but your profile could not be loaded. Refresh the page, or start Postgres (from repo root: npm run docker:up) and check DATABASE_URL in job-assistant/.env."
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -148,43 +163,76 @@ function DashboardPanel() {
 
       {profile ? (
         <div className="card-simplify space-y-5 shadow-card">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
-                Your profile
-              </p>
-              <p className="mt-1 text-xl font-bold text-slate-900">{profile.name}</p>
-              {profile.username && (
-                <p className="text-sm font-medium text-slate-700">@{profile.username}</p>
-              )}
-              <p className="text-sm text-slate-600">{profile.email}</p>
-              {(profile.linkedinUrl || profile.githubUrl) && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {profile.linkedinUrl && (
-                    <a
-                      href={profile.linkedinUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
-                    >
-                      LinkedIn
-                    </a>
+          <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => setDashTab("profile")}
+              className={[
+                "flex-1 rounded-lg py-2 text-sm font-semibold transition-colors",
+                dashTab === "profile"
+                  ? "bg-white text-teal-800 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900",
+              ].join(" ")}
+            >
+              Profile
+            </button>
+            <button
+              type="button"
+              onClick={() => setDashTab("applied")}
+              className={[
+                "flex-1 rounded-lg py-2 text-sm font-semibold transition-colors",
+                dashTab === "applied"
+                  ? "bg-white text-teal-800 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900",
+              ].join(" ")}
+            >
+              Jobs applied
+            </button>
+          </div>
+
+          {dashTab === "profile" ? (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">
+                    Your profile
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{profile.name}</p>
+                  {profile.username && (
+                    <p className="text-sm font-medium text-slate-700">@{profile.username}</p>
                   )}
-                  {profile.githubUrl && (
-                    <a
-                      href={profile.githubUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
-                    >
-                      GitHub
-                    </a>
+                  <p className="text-sm text-slate-600">{profile.email}</p>
+                  {(profile.linkedinUrl || profile.githubUrl) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {profile.linkedinUrl && (
+                        <a
+                          href={profile.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+                        >
+                          LinkedIn
+                        </a>
+                      )}
+                      {profile.githubUrl && (
+                        <a
+                          href={profile.githubUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-teal-300 hover:text-teal-800"
+                        >
+                          GitHub
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-          <ProfileEditor />
+              </div>
+              <ProfileEditor />
+            </>
+          ) : (
+            <JobApplicationsPanel bucket="applied" />
+          )}
         </div>
       ) : (
         <div className="card-simplify shadow-card">
@@ -394,7 +442,8 @@ export function AssistantShell() {
             </div>
             {!navMinimized && !profile && status !== "loading" && (
               <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                Sign in on the dashboard to unlock onboarding, resume analysis, and answer drafts.
+                Sign in on the dashboard to unlock onboarding, open jobs, resume analysis, and answer
+                drafts.
               </p>
             )}
           </div>
@@ -460,6 +509,12 @@ export function AssistantShell() {
             <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:max-w-4xl lg:px-8 lg:py-10">
               {section === "dashboard" && <DashboardPanel />}
               {section === "onboarding" && <OnboardingFlow />}
+              {section === "jobListing" && (
+                <div className="space-y-6">
+                  <h1 className="text-3xl font-bold tracking-tight text-slate-900">Open jobs</h1>
+                  <JobApplicationsPanel bucket="listings" />
+                </div>
+              )}
               {section === "resume" && (
                 <div className="space-y-6">
                   <div>
